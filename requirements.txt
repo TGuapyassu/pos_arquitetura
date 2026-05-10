@@ -1,0 +1,4 @@
+# Producao: pip install -r requirements.txt
+# Desenvolvimento: pip install -e ".[dev]"
+
+-e .
