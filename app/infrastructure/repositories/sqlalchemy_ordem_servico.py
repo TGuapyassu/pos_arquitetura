@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.entities import OrdemServico
+from app.domain.enums import OrdemServicoStatus
 from app.infrastructure.database.models import OrdemServicoOrm
 from app.infrastructure.mappers.entity_mappers import os_orm_to_domain, sync_os_domain_to_orm
 from app.domain.exceptions import NotFoundError
@@ -68,6 +69,22 @@ class SqlAlchemyOrdemServicoRepository:
         q = self._s.execute(
             select(OrdemServicoOrm)
             .order_by(OrdemServicoOrm.id.desc())
+            .options(
+                selectinload(OrdemServicoOrm.itens_servico),
+                selectinload(OrdemServicoOrm.itens_peca),
+            )
+        ).scalars()
+        return [os_orm_to_domain(m) for m in q]
+
+    def listar_ativas(self) -> List[OrdemServico]:
+        q = self._s.execute(
+            select(OrdemServicoOrm)
+            .where(
+                OrdemServicoOrm.status.not_in(
+                    [OrdemServicoStatus.FINALIZADA, OrdemServicoStatus.ENTREGUE]
+                )
+            )
+            .order_by(OrdemServicoOrm.created_at.asc())
             .options(
                 selectinload(OrdemServicoOrm.itens_servico),
                 selectinload(OrdemServicoOrm.itens_peca),

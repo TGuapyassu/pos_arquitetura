@@ -1,0 +1,11 @@
+# Copie para terraform.tfvars e ajuste se necessário:
+#   cp terraform.tfvars.example terraform.tfvars
+
+cluster_name    = "oficina"
+node_image      = "kindest/node:v1.29.2"
+worker_nodes    = 1
+namespace       = "oficina"
+postgres_user   = "oficina"
+postgres_password = "oficina"
+postgres_db     = "oficina"
+storage_size    = "1Gi"

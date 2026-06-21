@@ -11,6 +11,8 @@ from sqlalchemy.orm import sessionmaker, Session
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET"] = "chave-secreta-para-testes-32b---"
+os.environ["WEBHOOK_API_KEY"] = "chave-webhook-teste"
+os.environ["EMAIL_ENABLED"] = "false"
 os.environ["APP_ENV"] = "development"
 os.environ["PYTEST_CURRENT_TEST"] = "1"
 

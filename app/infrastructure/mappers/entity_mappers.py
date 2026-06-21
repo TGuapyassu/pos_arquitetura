@@ -96,6 +96,8 @@ def os_orm_to_domain(m: OrdemServicoOrm) -> OrdemServico:
         itens_peca=it_p,
         valor_total=Decimal(m.valor_total) if m.valor_total is not None else None,
         aprovada_em=m.aprovada_em,
+        recusada_em=m.recusada_em,
+        referencia_externa=m.referencia_externa,
         created_at=m.created_at,
         updated_at=m.updated_at,
         data_finalizacao=m.data_finalizacao,
@@ -111,6 +113,8 @@ def sync_os_domain_to_orm(o: OrdemServico, m: OrdemServicoOrm) -> OrdemServicoOr
     m.status = o.status
     m.valor_total = o.valor_total
     m.aprovada_em = o.aprovada_em
+    m.recusada_em = o.recusada_em
+    m.referencia_externa = o.referencia_externa
     m.data_finalizacao = o.data_finalizacao
     m.data_entrega = o.data_entrega
     m.itens_servico = [

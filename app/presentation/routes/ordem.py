@@ -1,67 +1,76 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.application.dtos.ordem_dto import OrdemCreateIn, OrdemOut, OrdemUpdateStatusIn
-from app.application.use_cases import ordem_servico as uo
+from app.application.dtos.ordem_dto import (
+    OrdemAberturaOut,
+    OrdemCreateIn,
+    OrdemOut,
+    OrdemUpdateStatusIn,
+)
+from app.application.use_cases.ordem_servico import (
+    AprovarOrdemServico,
+    AtualizarStatusOrdem,
+    CriarOrdemServico,
+    ListarOrdensServicoAtivas,
+    ObterOrdemServico,
+)
 from app.infrastructure.database import get_session
-from app.presentation.httpxx import errmap
+from app.presentation.composition import (
+    get_aprovar_ordem_servico,
+    get_atualizar_status_ordem,
+    get_criar_ordem_servico,
+    get_listar_ordens_servico_ativas,
+    get_obter_ordem_servico,
+)
 from app.presentation.dependencies import require_admin
+from app.presentation.transaction import handle_domain_errors, run_in_transaction
 
 router = APIRouter(prefix="/os", tags=["ordem de serviço"])
 
 
-@router.post("", response_model=OrdemOut, dependencies=[Depends(require_admin)])
-def post_os(
-    body: OrdemCreateIn, db: Session = Depends(get_session)
-) -> OrdemOut:
-    try:
-        r = uo.criar_ordem(db, body)
-        db.commit()
-        return r
-    except Exception as e:
-        db.rollback()
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+@router.post(
+    "",
+    response_model=OrdemAberturaOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
+def criar_ordem_servico(
+    body: OrdemCreateIn,
+    db: Session = Depends(get_session),
+    use_case: CriarOrdemServico = Depends(get_criar_ordem_servico),
+) -> OrdemAberturaOut:
+    return run_in_transaction(db, lambda: use_case.execute(body))
 
 
 @router.get("/{id}", response_model=OrdemOut, dependencies=[Depends(require_admin)])
-def get_os(
-    id: int, db: Session = Depends(get_session)
+def obter_ordem_servico(
+    id: int,
+    use_case: ObterOrdemServico = Depends(get_obter_ordem_servico),
 ) -> OrdemOut:
-    try:
-        o = uo.obter_os(db, id)
-        return o
-    except Exception as e:
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+    return handle_domain_errors(lambda: use_case.execute(id))
 
 
 @router.get("", response_model=list[OrdemOut], dependencies=[Depends(require_admin)])
-def get_list(db: Session = Depends(get_session)) -> list[OrdemOut]:
-    return uo.listar_os(db)
+def listar_ordens_servico(
+    use_case: ListarOrdensServicoAtivas = Depends(get_listar_ordens_servico_ativas),
+) -> list[OrdemOut]:
+    return use_case.execute()
 
 
 @router.patch("/{id}/status", response_model=OrdemOut, dependencies=[Depends(require_admin)])
-def patch_status(
-    id: int, body: OrdemUpdateStatusIn, db: Session = Depends(get_session)
+def atualizar_status_ordem(
+    id: int,
+    body: OrdemUpdateStatusIn,
+    db: Session = Depends(get_session),
+    use_case: AtualizarStatusOrdem = Depends(get_atualizar_status_ordem),
 ) -> OrdemOut:
-    try:
-        r = uo.patch_status(db, id, body)
-        db.commit()
-        return r
-    except Exception as e:
-        db.rollback()
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+    return run_in_transaction(db, lambda: use_case.execute(id, body))
 
 
 @router.post("/{id}/aprovar", response_model=OrdemOut, dependencies=[Depends(require_admin)])
-def aprovar(id: int, db: Session = Depends(get_session)) -> OrdemOut:
-    try:
-        r = uo.aprovar(db, id)
-        db.commit()
-        return r
-    except Exception as e:
-        db.rollback()
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+def aprovar_ordem_servico(
+    id: int,
+    db: Session = Depends(get_session),
+    use_case: AprovarOrdemServico = Depends(get_aprovar_ordem_servico),
+) -> OrdemOut:
+    return run_in_transaction(db, lambda: use_case.execute(id))

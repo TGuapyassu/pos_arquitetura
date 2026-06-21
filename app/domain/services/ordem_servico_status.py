@@ -10,7 +10,8 @@ _ALLOWED_PATCH: dict[OrdemServicoStatus, frozenset[OrdemServicoStatus]] = {
     OrdemServicoStatus.EM_DIAGNOSTICO: frozenset(
         {OrdemServicoStatus.AGUARDANDO_APROVACAO}
     ),
-    OrdemServicoStatus.AGUARDANDO_APROVACAO: frozenset(),  # aprovar é caminho explícito
+    OrdemServicoStatus.AGUARDANDO_APROVACAO: frozenset(),  # aprovar/recusar é caminho explícito
+    OrdemServicoStatus.ORCAMENTO_RECUSADO: frozenset({OrdemServicoStatus.EM_DIAGNOSTICO}),
     OrdemServicoStatus.EM_EXECUCAO: frozenset({OrdemServicoStatus.FINALIZADA}),
     OrdemServicoStatus.FINALIZADA: frozenset({OrdemServicoStatus.ENTREGUE}),
     OrdemServicoStatus.ENTREGUE: frozenset(),
@@ -39,6 +40,12 @@ def transicao_apos_aprovacao(origem: OrdemServicoStatus) -> OrdemServicoStatus:
     if origem != OrdemServicoStatus.AGUARDANDO_APROVACAO:
         raise TransicaoStatusInvalidaError("Só é possível aprovar em AGUARDANDO_APROVACAO.")
     return OrdemServicoStatus.EM_EXECUCAO
+
+
+def transicao_apos_recusa(origem: OrdemServicoStatus) -> OrdemServicoStatus:
+    if origem != OrdemServicoStatus.AGUARDANDO_APROVACAO:
+        raise TransicaoStatusInvalidaError("Só é possível recusar em AGUARDANDO_APROVACAO.")
+    return OrdemServicoStatus.ORCAMENTO_RECUSADO
 
 
 def requer_execucao(status: OrdemServicoStatus) -> bool:

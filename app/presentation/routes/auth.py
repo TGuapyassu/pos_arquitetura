@@ -1,23 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.application.dtos import LoginIn, TokenOut
-from app.application.use_cases import auth as uauth
+from app.application.use_cases.auth import LoginUseCase
 from app.infrastructure.database import get_session
-from app.presentation.httpxx import errmap
+from app.presentation.composition import get_login_use_case
+from app.presentation.transaction import run_in_transaction
 
 router = APIRouter(prefix="/auth", tags=["autenticacao"])
 
 
 @router.post("/login", response_model=TokenOut)
 def login(
-    body: LoginIn, db: Session = Depends(get_session)
+    body: LoginIn,
+    db: Session = Depends(get_session),
+    use_case: LoginUseCase = Depends(get_login_use_case),
 ) -> TokenOut:
-    try:
-        t = uauth.login(db, body)
-        db.commit()
-        return t
-    except Exception as e:  # noqa: BLE001
-        db.rollback()
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+    return run_in_transaction(db, lambda: use_case.execute(body))

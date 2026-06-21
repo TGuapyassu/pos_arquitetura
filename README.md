@@ -1,10 +1,20 @@
-# API de Oficina Mecânica (MVP)
+# API de Oficina Mecânica — Fase 3 (Infraestrutura)
 
-Back-end monolítico em **Python** com **FastAPI**, **SQLAlchemy 2**, **PostgreSQL** e **Alembic**, organizado com **Domain-Driven Design (DDD)** e arquitetura em camadas. O sistema modela **clientes**, **veículos**, **serviços**, **peças/estoque** e **ordens de serviço (OS)**, com autenticação **JWT**, rotas administrativas e consulta pública de OS.
+Back-end monolítico em **Python** com **FastAPI**, **SQLAlchemy 2**, **PostgreSQL** e **Alembic**, organizado com **Domain-Driven Design (DDD)** e arquitetura hexagonal (Fase 2). O sistema modela **clientes**, **veículos**, **serviços**, **peças/estoque** e **ordens de serviço (OS)**, com autenticação **JWT**, rotas administrativas, consulta pública de OS, webhooks e notificação por e-mail.
 
 ---
 
-## Objetivos
+## Objetivos desta fase (Fase 3)
+
+1. **Containerização** — Dockerfile multi-stage, docker-compose com Postgres persistente e healthchecks.
+2. **Kubernetes** — manifestos em [`k8s/`](k8s/) (Postgres interno, API, HPA, migrations via Job).
+3. **IaC (Terraform)** — provisionamento local com **kind** + banco + metrics-server em [`infra/`](infra/).
+4. **CI/CD** — pipeline GitHub Actions: build, testes, imagem Docker (GHCR) e deploy no cluster.
+5. **Documentação de entrega** — arquitetura, fluxo de deploy, collection Postman e instruções operacionais.
+
+---
+
+## Objetivos do MVP (Fases 1 e 2)
 
 1. **Gestão de oficina**  
    Centralizar cadastro de clientes e veículos, tabela de serviços e peças, e o ciclo de vida de ordens de serviço (diagnóstico, aprovação, execução, finalização e entrega).
@@ -68,15 +78,100 @@ app/
 | **Infrastructure** | Detalhes técnicos: tabelas SQLAlchemy, implementação dos repositórios, assinatura JWT, leitura de `Settings`. |
 | **Presentation** | HTTP: roteamento, `Depends` de sessão e JWT, conversão de exceções de domínio em 4xx/5xx. |
 
-**Princípios adotados:** regras de negócio não ficam no controller; o ORM não concentra cálculo de orçamento nem máquina de estados; dependências apontam para abstrações (repositórios) na infraestrutura.
+**Princípios adotados:** regras de negócio não ficam no controller; o ORM não concentra cálculo de orçamento nem máquina de estados; a camada de **aplicação depende apenas de interfaces** (`Protocol`) definidas no domínio; implementações concretas (SQLAlchemy, JWT) são montadas em `app/presentation/composition.py`.
+
+### Fase 2 — Clean / Hexagonal Architecture
+
+Na evolução da Fase 2, a aplicação passou a seguir **inversão de dependências** de forma explícita:
+
+| Elemento | Localização | Papel |
+|----------|-------------|-------|
+| **Ports (saída)** | `app/domain/repositories/` | Contratos `I*Repository` — a aplicação depende só deles |
+| **Ports (auth)** | `app/application/ports/` | `IAuthGateway` — abstrai JWT e verificação de senha |
+| **Casos de uso** | `app/application/use_cases/` | Classes com injeção no construtor (`execute(...)`) |
+| **Composition root** | `app/presentation/composition.py` | Único módulo que instancia repositórios SQLAlchemy e monta `Depends` |
+| **Transações** | `app/presentation/transaction.py` | `commit`/`rollback` na borda HTTP |
+| **Fakes de teste** | `tests/fakes/` | Repositórios in-memory para testes unitários sem banco |
+
+**Container (Docker):** o `Dockerfile` usa **build multi-stage** (estágio `builder` + `runtime` enxuto) e o processo roda como usuário **`appuser`** (UID 1000), sem `build-essential` na imagem final.
+
+### Arquitetura proposta
+
+#### Componentes da aplicação
+
+```mermaid
+flowchart TB
+  subgraph presentation [Presentation]
+    Routes[FastAPI Routes]
+    Composition[composition.py]
+  end
+  subgraph application [Application]
+    UseCases[Casos de Uso]
+    Ports[Ports IRepository IEmail]
+  end
+  subgraph domain [Domain]
+    Entities[Entidades e Politicas]
+  end
+  subgraph infrastructure [Infrastructure]
+    SQLAlchemy[Repositorios ORM]
+    SMTP[SMTP Notifier]
+  end
+  Routes --> UseCases
+  Composition --> SQLAlchemy
+  UseCases --> Entities
+  UseCases --> Ports
+  SQLAlchemy --> Entities
+```
+
+#### Infraestrutura provisionada
+
+```mermaid
+flowchart LR
+  subgraph localDev [Local Dev]
+    Compose[docker-compose]
+  end
+  subgraph iac [Terraform infra]
+    Kind[kind cluster]
+    PG[Postgres StatefulSet]
+    MS[metrics-server]
+  end
+  subgraph k8sApp [Manifestos k8s]
+    API[Deployment oficina-api]
+    HPA[HPA]
+  end
+  subgraph cicd [GitHub Actions]
+    Test[pytest]
+    Build[GHCR]
+    Deploy[k8s-deploy.sh]
+  end
+  Kind --> PG
+  PG --> API
+  Build --> Deploy
+```
+
+#### Fluxo de deploy
+
+```mermaid
+sequenceDiagram
+  participant Dev as Desenvolvedor
+  participant TF as Terraform_infra
+  participant K8s as Kubernetes
+  participant CI as GitHubActions
+  Dev->>TF: terraform apply
+  TF->>K8s: kind + Postgres + metrics-server
+  Dev->>K8s: k8s-deploy.sh SKIP_PLATFORM
+  CI->>CI: pytest + docker build
+  CI->>K8s: push main deploy completo
+```
 
 ---
 
 ## Regras de negócio (Ordem de Serviço)
 
-**Status possíveis:** `RECEBIDA` → `EM_DIAGNOSTICO` → `AGUARDANDO_APROVACAO` → `EM_EXECUCAO` → `FINALIZADA` → `ENTREGUE`.
+**Status possíveis:** `RECEBIDA` → `EM_DIAGNOSTICO` → `AGUARDANDO_APROVACAO` → (`ORCAMENTO_RECUSADO` | aprovação) → `EM_EXECUCAO` → `FINALIZADA` → `ENTREGUE`.
 
-- A transição de `AGUARDANDO_APROVACAO` para `EM_EXECUCAO` **não** é feita por `PATCH /os/{id}/status` — use **`POST /os/{id}/aprovar`** (aprovação explícita do orçamento).
+- A transição de `AGUARDANDO_APROVACAO` para `EM_EXECUCAO` **não** é feita por `PATCH /os/{id}/status` — use **`POST /os/{id}/aprovar`** (admin) ou **`POST /integrations/os/{id}/orcamento`** (webhook externo).
+- **Recusa de orçamento** (webhook com `aprovado: false`) leva a OS para `ORCAMENTO_RECUSADO`; a partir daí é possível retornar a `EM_DIAGNOSTICO` para revisão.
 - O **valor total** da OS é derivado dos itens (serviços e peças com preço de referência na hora do vínculo).
 - Ao **incluir peças** na criação da OS, o estoque é **baixado**; não é permitido estoque **negativo**.
 - Datas: criação/atualização automáticas; finalização e entrega registradas ao atingir `FINALIZADA` e `ENTREGUE`, conforme implementado no domínio.
@@ -121,6 +216,10 @@ Edite `.env` e ajuste no mínimo:
 | `JWT_ALGORITHM` | Padrão `HS256`. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Validade do access token. |
 | `CORS_ORIGINS` | `*` ou origens separadas por vírgula. |
+| `WEBHOOK_API_KEY` | Chave para rotas `/integrations/*`. |
+| `EMAIL_ENABLED` | `true` para envio SMTP; `false` em dev/testes. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Configuração SMTP. |
+| `EMAIL_FROM` | Remetente dos e-mails transacionais. |
 | `APP_ENV` | `development` ou `production` (influencia criação de schema em dev). |
 
 ### 3. Banco de dados e migrations
@@ -158,9 +257,166 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
+## Execução local (resumo)
+
+| Modo | Comando | Documentação |
+|------|---------|--------------|
+| **venv + uvicorn** | `pip install -e ".[dev]"` → `alembic upgrade head` → `uvicorn app.main:app --reload` | [Instalação](#instalação-desenvolvimento-local) abaixo |
+| **Docker Compose** | `export JWT_SECRET=...` → `docker compose up --build` | [Docker Compose](#uso-com-docker-compose) |
+| **Testes** | `pytest` | [Testes automáticos](#testes-automáticos) |
+
+---
+
+## Deploy em Kubernetes (resumo)
+
+| Modo | Passos |
+|------|--------|
+| **Manual** | `kubectl apply` na ordem documentada em [`k8s/README.md`](k8s/README.md) |
+| **Script** | `bash scripts/k8s-deploy.sh` com `IMAGE`, `JWT_SECRET`, `WEBHOOK_API_KEY` |
+| **CI/CD** | Push na `main` → GitHub Actions aplica manifestos automaticamente |
+
+Detalhes na seção [Infraestrutura](#infraestrutura) e em [`k8s/README.md`](k8s/README.md).
+
+---
+
+## Provisionamento com Terraform (resumo)
+
+```bash
+cd infra/environments/local
+terraform init && terraform apply
+export KUBECONFIG="$(terraform output -raw kubeconfig_path)"
+# Depois: k8s-deploy.sh com SKIP_PLATFORM=true
+```
+
+Documentação completa: [`infra/README.md`](infra/README.md).
+
+---
+
+## Collection de APIs
+
+| Recurso | Link |
+|---------|------|
+| **Swagger UI** | http://localhost:8000/docs |
+| **ReDoc** | http://localhost:8000/redoc |
+| **Postman** | [`docs/postman/oficina-api.postman_collection.json`](docs/postman/oficina-api.postman_collection.json) — ver [`docs/postman/README.md`](docs/postman/README.md) |
+
+---
+
+## Vídeo demonstrativo
+
+> **Link:** [a definir — incluir URL do YouTube, Google Drive ou similar]
+
+_Inclua aqui o link do vídeo mostrando a API em execução (local, Docker ou Kubernetes)._
+
+---
+
+## Infraestrutura
+
+### Docker (desenvolvimento local)
+
+A imagem usa **build multi-stage**, usuário **non-root** (`appuser`, UID 1000), `HEALTHCHECK` em `/health` e entrypoint que roda migrations apenas quando `RUN_MIGRATIONS=true`.
+
+```bash
+# Build da imagem
+docker build -t oficina-api:latest .
+
+# Stack local (API + Postgres)
+export JWT_SECRET="$(openssl rand -hex 32)"
+docker compose up --build
+```
+
+| Componente | Descrição |
+|------------|-----------|
+| [`Dockerfile`](Dockerfile) | Builder + runtime enxuto; migrations opcionais via entrypoint |
+| [`docker-compose.yml`](docker-compose.yml) | Postgres 16 + API; volume `postgres_data` persistente |
+| [`scripts/docker-entrypoint.sh`](scripts/docker-entrypoint.sh) | `RUN_MIGRATIONS=true` → alembic; senão só uvicorn |
+
+### Kubernetes (produção / cluster)
+
+Manifestos em [`k8s/`](k8s/) — deploy da **API** com **PostgreSQL interno** (StatefulSet + PVC + Service `postgres:5432`).
+
+| Recurso | Arquivo |
+|---------|---------|
+| Namespace | `k8s/namespace.yaml` |
+| PostgreSQL interno | `k8s/postgres.yaml` |
+| ConfigMap | `k8s/configmap.yaml` |
+| Secret (template) | `k8s/secret.example.yaml` |
+| Migration Job | `k8s/migration-job.yaml` |
+| Deployment + probes | `k8s/deployment.yaml` |
+| Service ClusterIP | `k8s/service.yaml` |
+| HPA (CPU 70%, mem 80%) | `k8s/hpa.yaml` |
+
+Instruções completas: [`k8s/README.md`](k8s/README.md).
+
+```bash
+docker build -t oficina-api:latest .
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/postgres.yaml
+kubectl wait --for=condition=ready pod -l app=postgres -n oficina --timeout=120s
+kubectl apply -f k8s/configmap.yaml -f k8s/secret.example.yaml
+kubectl apply -f k8s/migration-job.yaml
+kubectl wait --for=condition=complete job/oficina-api-migration -n oficina --timeout=120s
+kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml -f k8s/hpa.yaml
+```
+
+### IaC — Terraform (cluster local kind)
+
+Scripts em [`infra/`](infra/) provisionam **cluster kind**, **namespace**, **PostgreSQL interno** e **metrics-server** (HPA).
+
+| Módulo | Recursos |
+|--------|----------|
+| `kind-cluster` | Cluster Kubernetes local (`oficina`) |
+| `k8s-platform` | Namespace, Secret/PVC/StatefulSet/Service Postgres, metrics-server |
+
+```bash
+cd infra/environments/local
+terraform init && terraform apply
+export KUBECONFIG="$(terraform output -raw kubeconfig_path)"
+
+# Deploy da API (plataforma já criada pelo Terraform)
+docker build -t oficina-api:latest .
+kind load docker-image oficina-api:latest --name oficina
+export IMAGE=oficina-api:latest SKIP_PLATFORM=true
+export JWT_SECRET=... WEBHOOK_API_KEY=...
+bash scripts/k8s-deploy.sh
+```
+
+Documentação completa: [`infra/README.md`](infra/README.md).
+
+### CI/CD (GitHub Actions)
+
+Pipeline em [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) — build, testes, imagem Docker e deploy no cluster.
+
+| Gatilho | Jobs executados |
+|---------|-----------------|
+| `pull_request` ou push em branch ≠ `main` | Build da aplicação + `pytest` + validação do Dockerfile (sem push) |
+| Push na branch `main` | Testes → build/push GHCR → deploy K8s (Postgres + manifestos + migrations + API) |
+
+Fluxo na `main`:
+
+```text
+test → build (ghcr.io/<owner>/oficina-api:<sha>) → deploy (scripts/k8s-deploy.sh)
+```
+
+**Secrets do repositório** (Settings → Secrets and variables → Actions):
+
+| Secret | Descrição |
+|--------|-----------|
+| `KUBECONFIG_DATA` | Kubeconfig do cluster codificado em base64 |
+| `JWT_SECRET` | Segredo JWT da API |
+| `WEBHOOK_API_KEY` | Chave dos webhooks de integração |
+| `DATABASE_URL` | URL do Postgres interno (padrão: `postgresql+psycopg2://oficina:oficina@postgres:5432/oficina`) |
+| `SMTP_USER` / `SMTP_PASSWORD` | Opcionais (e-mail desabilitado por padrão no ConfigMap) |
+
+O push da imagem usa `GITHUB_TOKEN` (permissão `packages: write`). Para pacote GHCR privado, configure `imagePullSecret` no cluster; para demo acadêmica, torne o pacote público.
+
+Deploy manual local (mesma ordem do CI): [`scripts/k8s-deploy.sh`](scripts/k8s-deploy.sh) com `IMAGE`, `JWT_SECRET` e `WEBHOOK_API_KEY` definidos.
+
+---
+
 ## Uso com Docker Compose
 
-Cria o serviço `db` (Postgres) e a `api` (build do `Dockerfile`), executa migrations e inicia o Uvicorn.
+Cria o serviço `db` (Postgres) e a `api` (build do `Dockerfile`). Com `RUN_MIGRATIONS=true`, o entrypoint executa `alembic upgrade head` antes do Uvicorn.
 
 ```bash
 export JWT_SECRET="$(openssl rand -hex 32)"   # Linux/macOS; no Windows, defina manualmente
@@ -168,6 +424,7 @@ docker compose up --build
 ```
 
 - API: **http://localhost:8000**  
+- Healthchecks em `/health` (API) e `pg_isready` (Postgres)
 - Depois de subir, execute o **seed do admin** (a partir do host, apontando para o mesmo `DATABASE_URL` do compose) ou crie o usuário por script/SQL, conforme sua preferência de deploy.
 
 Arquivo `docker-compose.yml`: usuário, senha e banco padrão `oficina`; ajuste credenciais em produção e use segredos externos (não versionar produção com senhas padrão).
@@ -178,9 +435,10 @@ Arquivo `docker-compose.yml`: usuário, senha e banco padrão `oficina`; ajuste 
 
 1. **Login** — `POST /auth/login` com `email` e `senha` (usuário com `is_active` e, para administrativo, `is_admin`). Resposta: `access_token` (Bearer JWT).  
 2. **Rotas administrativas** — header `Authorization: Bearer <access_token>`. O backend valida o token e exige `is_admin` onde as rotas estiverem protegidas com essa regra.  
-3. **Consulta pública** — `GET /public/ordens-servico/{id}` **sem** token: retorno limitado a campos de acompanhamento (status, valores, datas de entrega/finalização).
+3. **Consulta pública** — `GET /public/ordens-servico/{id}` e `GET /public/ordens-servico/{id}/status` **sem** token.
+4. **Integrações externas** — rotas em `/integrations/*` autenticadas por header `X-Webhook-Key` (n8n, Zapier, automação de e-mail).
 
-Em produção: HTTPS obrigatório, `JWT_SECRET` longo e rotativo, senhas fortes no seed e política de CORS restrita.
+Em produção: HTTPS obrigatório, `JWT_SECRET` e `WEBHOOK_API_KEY` longos e rotativos, senhas fortes no seed e política de CORS restrita.
 
 ---
 
@@ -190,12 +448,15 @@ Em produção: HTTPS obrigatório, `JWT_SECRET` longo e rotativo, senhas fortes 
 |--------|------|--------------|------------|
 | `POST` | `/auth/login` | Não | Obtém JWT. |
 | `GET` | `/health` | Não | Saúde da aplicação. |
-| `GET` | `/public/ordens-servico/{id}` | Não | Consulta pública da OS. |
-| `POST` | `/os` | Admin (JWT) | Cria OS com itens. |
-| `GET` | `/os` | Admin | Lista OS. |
-| `GET` | `/os/{id}` | Admin | Detalhe da OS. |
+| `GET` | `/public/ordens-servico/{id}` | Não | Consulta pública da OS (totais e datas). |
+| `GET` | `/public/ordens-servico/{id}/status` | Não | Status atual com descrição legível. |
+| `POST` | `/os` | Admin (JWT) | Abre OS; retorna `{ "id": ... }`. |
+| `GET` | `/os` | Admin | Lista OS **ativas** (exclui finalizadas/entregues), ordenadas por prioridade de status e data. |
+| `GET` | `/os/{id}` | Admin | Detalhe completo da OS. |
 | `PATCH` | `/os/{id}/status` | Admin | Muda status (máquina de estados). |
 | `POST` | `/os/{id}/aprovar` | Admin | Aprova orçamento → execução. |
+| `POST` | `/integrations/os/{id}/orcamento` | Webhook key | Aprova ou recusa orçamento externamente. |
+| `POST` | `/integrations/os/{id}/status` | Webhook key | Atualiza status via ferramenta de automação/e-mail. |
 | | `/clientes`, `/veiculos`, `/servicos`, `/pecas` | Admin | CRUDs conforme rotas expostas no OpenAPI. |
 | `PATCH` | `/pecas/{id}/estoque` | Admin | Ajusta estoque (absoluto ou delta). |
 
@@ -278,10 +539,34 @@ curl -s -X PATCH "http://localhost:8000/os/${OS_ID}/status" -H "$H" -H "Content-
 ### 5) Consulta pública (cliente, sem token)
 
 ```bash
+curl -s "http://localhost:8000/public/ordens-servico/1/status"
 curl -s "http://localhost:8000/public/ordens-servico/1"
 ```
 
-### 6) Ajuste de estoque (admin)
+### 6) Webhook — aprovação/recusa de orçamento (n8n / Zapier)
+
+```bash
+WH="X-Webhook-Key: ${WEBHOOK_API_KEY:-sua-chave-webhook}"
+
+# Aprovar
+curl -s -X POST "http://localhost:8000/integrations/os/1/orcamento" \
+  -H "$WH" -H "Content-Type: application/json" \
+  -d '{"aprovado": true, "referencia_externa": "n8n-flow-42"}'
+
+# Recusar
+curl -s -X POST "http://localhost:8000/integrations/os/1/orcamento" \
+  -H "$WH" -H "Content-Type: application/json" \
+  -d '{"aprovado": false, "referencia_externa": "email-cliente-99"}'
+
+# Atualizar status via automação
+curl -s -X POST "http://localhost:8000/integrations/os/1/status" \
+  -H "$WH" -H "Content-Type: application/json" \
+  -d '{"status": "EM_DIAGNOSTICO", "referencia_externa": "zapier-1"}'
+```
+
+Quando `EMAIL_ENABLED=true` e o cliente tem e-mail no campo `contato`, mudanças de status disparam notificação transacional.
+
+### 7) Ajuste de estoque (admin)
 
 ```bash
 # Define estoque absoluto = 5
@@ -302,7 +587,7 @@ source .venv/bin/activate
 pytest
 ```
 
-Os testes cobrem **domínio** (políticas de status, value objects, entidades), **casos de uso** e **integração HTTP** (FastAPI com SQLite em memória), em `tests/`.
+Os testes cobrem **domínio** (políticas de status, value objects, entidades), **casos de uso unitários** com fakes in-memory (`tests/fakes/`, `tests/unit/`) e **integração HTTP** (FastAPI com SQLite em memória), em `tests/`.
 
 ### Cobertura mínima de 80% (domínios críticos)
 
@@ -374,19 +659,26 @@ pip freeze | pip-audit --requirement /dev/stdin
 
 ```
 .
-├── app/
-│   ├── main.py                 # Fábrica da aplicação FastAPI, CORS, lifespan, handlers
+├── app/                        # Código da aplicação (DDD + hexagonal)
+│   ├── main.py
 │   ├── domain/
 │   ├── application/
 │   ├── infrastructure/
 │   └── presentation/
 ├── alembic/                    # Migrations
-├── docs/                       # Vulnerabilidades, DDD (Event Storming, Mermaid)
+├── docs/
+│   ├── postman/                # Collection Postman
+│   └── ...                     # DDD, vulnerabilidades
+├── infra/                      # Terraform (kind + Postgres + metrics-server)
+│   ├── modules/
+│   └── environments/local/
+├── k8s/                        # Manifestos Kubernetes
+├── .github/workflows/          # CI/CD (GitHub Actions)
 ├── scripts/
-│   ├── seed_admin.py           # Criação do usuário admin
-│   └── gerar_relatorio_vulnerabilidades_pdf.py
+│   ├── k8s-deploy.sh           # Deploy ordenado no cluster
+│   ├── docker-entrypoint.sh
+│   └── seed_admin.py
 ├── tests/
-├── pyproject.toml
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md

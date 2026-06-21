@@ -8,6 +8,7 @@ from typing import Optional
 from app.domain.enums import OrdemServicoStatus
 from app.domain.services.ordem_servico_status import (
     transicao_apos_aprovacao,
+    transicao_apos_recusa,
     transicao_status_via_patch_permitida,
 )
 
@@ -48,6 +49,8 @@ class OrdemServico:
     id: Optional[int] = None
     valor_total: Optional[Decimal] = None
     aprovada_em: Optional[datetime] = None
+    recusada_em: Optional[datetime] = None
+    referencia_externa: Optional[str] = None
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -92,12 +95,23 @@ class OrdemServico:
         self.status = destino
         self.updated_at = datetime.now(timezone.utc)
 
-    def aprovar_orcamento(self) -> None:
+    def aprovar_orcamento(self, referencia_externa: str | None = None) -> None:
         novo = transicao_apos_aprovacao(self.status)
         self.aprovada_em = datetime.now(timezone.utc)
+        if referencia_externa:
+            self.referencia_externa = referencia_externa
         self._anexar_datas_se_aplicavel(novo)
         self.status = novo
         self.updated_at = self.aprovada_em
+
+    def recusar_orcamento(self, referencia_externa: str | None = None) -> None:
+        novo = transicao_apos_recusa(self.status)
+        self.recusada_em = datetime.now(timezone.utc)
+        if referencia_externa:
+            self.referencia_externa = referencia_externa
+        self._anexar_datas_se_aplicavel(novo)
+        self.status = novo
+        self.updated_at = self.recusada_em
 
     def _anexar_datas_se_aplicavel(self, destino: OrdemServicoStatus) -> None:
         now = datetime.now(timezone.utc)

@@ -10,7 +10,9 @@ from app.application.dtos import (
     ServicoOut,
     VeiculoOut,
 )
+from app.application.dtos.ordem_dto import OrdemItemOut, OrdemStatusOut
 from app.domain.entities import Cliente, OrdemServico, Peca, ServicoOficina, Veiculo
+from app.domain.services.ordem_servico_listagem import descricao_status
 
 
 def cliente_to_out(c: Cliente) -> ClienteOut:
@@ -59,8 +61,6 @@ def peca_to_out(p: Peca) -> PecaOut:
 
 
 def ordem_to_out(o: OrdemServico) -> OrdemOut:
-    from app.application.dtos.ordem_dto import OrdemItemOut
-
     v = o.valor_total or o.calcular_valor_total()
     return OrdemOut(
         id=o.id or 0,
@@ -96,4 +96,12 @@ def ordem_to_publica(o: OrdemServico) -> OrdemPublicaOut:
         valor_total=v,
         data_finalizacao=o.data_finalizacao,
         data_entrega=o.data_entrega,
+    )
+
+
+def ordem_to_status(o: OrdemServico) -> OrdemStatusOut:
+    return OrdemStatusOut(
+        id=o.id or 0,
+        status=o.status,
+        status_descricao=descricao_status(o.status),
     )

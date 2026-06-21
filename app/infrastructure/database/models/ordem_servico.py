@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    String,
     func,
 )
 
@@ -38,6 +39,8 @@ class OrdemServicoOrm(Base):
     )
     valor_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     aprovada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recusada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    referencia_externa: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

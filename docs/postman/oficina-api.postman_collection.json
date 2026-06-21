@@ -1,0 +1,199 @@
+{
+  "info": {
+    "name": "Oficina API",
+    "description": "Collection da API de Oficina Mecânica (FastAPI). Importe no Postman e configure as variáveis `baseUrl`, `token` e `webhookKey`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "token", "value": "" },
+    { "key": "webhookKey", "value": "dev-webhook-key" },
+    { "key": "osId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.collectionVariables.set('token', json.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@oficina.local\",\n  \"senha\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Público",
+      "item": [
+        {
+          "name": "Status da OS (público)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/public/ordens-servico/{{osId}}/status"
+          }
+        },
+        {
+          "name": "Resumo da OS (público)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/public/ordens-servico/{{osId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ordens de Serviço",
+      "item": [
+        {
+          "name": "Criar OS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cliente_id\": 1,\n  \"veiculo_id\": 1,\n  \"servicos\": [{\"servico_id\": 1, \"quantidade\": 1}],\n  \"pecas\": []\n}"
+            },
+            "url": "{{baseUrl}}/os"
+          }
+        },
+        {
+          "name": "Listar OS ativas",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/os"
+          }
+        },
+        {
+          "name": "Obter OS por ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/os/{{osId}}"
+          }
+        },
+        {
+          "name": "Atualizar status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"EM_DIAGNOSTICO\"\n}"
+            },
+            "url": "{{baseUrl}}/os/{{osId}}/status"
+          }
+        },
+        {
+          "name": "Aprovar OS",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/os/{{osId}}/aprovar"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clientes",
+      "item": [
+        {
+          "name": "Criar cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"João Silva\",\n  \"contato\": \"joao@email.com\",\n  \"cpf_cnpj\": \"52998224725\"\n}"
+            },
+            "url": "{{baseUrl}}/clientes"
+          }
+        },
+        {
+          "name": "Listar clientes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/clientes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integrações",
+      "item": [
+        {
+          "name": "Decidir orçamento (webhook)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Webhook-Key", "value": "{{webhookKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"aprovado\": true,\n  \"referencia_externa\": \"n8n-001\",\n  \"observacao\": \"Cliente aprovou por e-mail\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/os/{{osId}}/orcamento"
+          }
+        },
+        {
+          "name": "Atualizar status (webhook)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Webhook-Key", "value": "{{webhookKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"FINALIZADA\",\n  \"referencia_externa\": \"n8n-002\"\n}"
+            },
+            "url": "{{baseUrl}}/integrations/os/{{osId}}/status"
+          }
+        }
+      ]
+    }
+  ]
+}

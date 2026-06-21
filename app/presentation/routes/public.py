@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.application.dtos.ordem_dto import OrdemPublicaOut
-from app.application.use_cases import ordem_servico as uo
-from app.infrastructure.database import get_session
-from app.presentation.httpxx import errmap
+from app.application.dtos.ordem_dto import OrdemPublicaOut, OrdemStatusOut
+from app.application.use_cases.ordem_servico import ObterOrdemPublica, ObterStatusOrdem
+from app.presentation.composition import get_obter_ordem_publica, get_obter_status_ordem
+from app.presentation.transaction import handle_domain_errors
 
 router = APIRouter(prefix="/public", tags=["público"])
 
@@ -14,11 +13,20 @@ router = APIRouter(prefix="/public", tags=["público"])
     response_model=OrdemPublicaOut,
     summary="Consulta pública de OS (cliente) — sem autenticação",
 )
-def get_public(
-    id: int, db: Session = Depends(get_session)
+def consultar_ordem_publica(
+    id: int,
+    use_case: ObterOrdemPublica = Depends(get_obter_ordem_publica),
 ) -> OrdemPublicaOut:
-    try:
-        return uo.public_obter_os(db, id)
-    except Exception as e:
-        c, m = errmap(e)
-        raise HTTPException(c, m) from e
+    return handle_domain_errors(lambda: use_case.execute(id))
+
+
+@router.get(
+    "/ordens-servico/{id}/status",
+    response_model=OrdemStatusOut,
+    summary="Consulta pública do status da OS — sem autenticação",
+)
+def consultar_status_ordem(
+    id: int,
+    use_case: ObterStatusOrdem = Depends(get_obter_status_ordem),
+) -> OrdemStatusOut:
+    return handle_domain_errors(lambda: use_case.execute(id))

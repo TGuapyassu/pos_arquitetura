@@ -6,8 +6,14 @@ htmlcov/
 .venv/
 venv/
 .env
+k8s/secret.yaml
 *.db
 .mypy_cache/
 .ruff_cache/
 dist/
 *.egg-info/
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+infra/environments/local/terraform.tfvars

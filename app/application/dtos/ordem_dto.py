@@ -26,6 +26,27 @@ class OrdemCreateIn(BaseModel):
     pecas: List[OrdemItemPecaIn] = Field(default_factory=list)
 
 
+class OrdemAberturaOut(BaseModel):
+    id: int
+
+
+class OrdemStatusOut(BaseModel):
+    id: int
+    status: OrdemServicoStatus
+    status_descricao: str
+
+
+class OrcamentoDecisaoIn(BaseModel):
+    aprovado: bool
+    referencia_externa: Optional[str] = None
+    observacao: Optional[str] = None
+
+
+class WebhookStatusIn(BaseModel):
+    status: OrdemServicoStatus
+    referencia_externa: Optional[str] = None
+
+
 class OrdemItemOut(BaseModel):
     servico_id: Optional[int] = None
     peca_id: Optional[int] = None

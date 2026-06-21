@@ -32,6 +32,23 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(60, validation_alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     cors_origins: str = Field(default="*", validation_alias="CORS_ORIGINS")
+    webhook_api_key: str = Field(
+        default="chave-webhook-dev-alterar",
+        validation_alias="WEBHOOK_API_KEY",
+    )
+    email_enabled: bool = Field(default=False, validation_alias="EMAIL_ENABLED")
+    smtp_host: str = Field(default="localhost", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")
+    smtp_user: str = Field(default="", validation_alias="SMTP_USER")
+    smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
+    email_from: str = Field(default="oficina@localhost", validation_alias="EMAIL_FROM")
+
+    @field_validator("email_enabled", mode="before")
+    @classmethod
+    def v_email_enabled(cls, v: str | bool) -> bool:
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
