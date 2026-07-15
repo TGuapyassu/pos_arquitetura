@@ -292,21 +292,36 @@ Documentação completa: [`infra/README.md`](infra/README.md).
 
 ---
 
+## Ambiente de produção
+
+| Recurso | URL |
+|---------|-----|
+| **Aplicação (Vercel)** | [https://pos-arquitetura.tguapyassu.com/](https://pos-arquitetura.tguapyassu.com/) |
+| **Swagger OpenAPI (local)** | http://localhost:8000/docs |
+| **ReDoc (local)** | http://localhost:8000/redoc |
+
+O front-end / ambiente publicado na Vercel demonstra o sistema em uso. A documentação interativa completa da API (Swagger) e a collection Postman ficam disponíveis em execução local ou após o deploy da API.
+
+---
+
 ## Collection de APIs
 
 | Recurso | Link |
 |---------|------|
-| **Swagger UI** | http://localhost:8000/docs |
-| **ReDoc** | http://localhost:8000/redoc |
+| **App em produção** | [https://pos-arquitetura.tguapyassu.com/](https://pos-arquitetura.tguapyassu.com/) |
+| **Swagger UI (local)** | http://localhost:8000/docs |
+| **ReDoc (local)** | http://localhost:8000/redoc |
 | **Postman** | [`docs/postman/oficina-api.postman_collection.json`](docs/postman/oficina-api.postman_collection.json) — ver [`docs/postman/README.md`](docs/postman/README.md) |
 
 ---
 
 ## Vídeo demonstrativo
 
-> **Link:** [a definir — incluir URL do YouTube, Google Drive ou similar]
+> **Link:** _[inserir URL YouTube/Vimeo após publicar]_
 
-_Inclua aqui o link do vídeo mostrando a API em execução (local, Docker ou Kubernetes)._
+Roteiro detalhado de gravação (deploy, CI/CD, APIs e HPA, ≤ 15 min): [`docs/roteiro_video_demo.md`](docs/roteiro_video_demo.md).
+
+O vídeo deve ser público ou **não listado** no YouTube/Vimeo e cobrir: deploy da aplicação, execução do CI/CD, consumo das APIs e escalabilidade automática.
 
 ---
 
